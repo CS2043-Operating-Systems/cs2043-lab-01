@@ -167,7 +167,11 @@ static void interactive_shell(void) {
 
     if (command[0] == '\0')
       continue;
-    else if (!strcmp(command, "exit")) {
+    else if (!strcmp(command, "whoami")) {
+      printf("Shashika Dayarathna - 240092V\n");
+    } else if (!strcmp(command, "shutdown")) {
+      shutdown_power_off();
+    } else if (!strcmp(command, "exit")) {
       printf("Exiting interactive shell...Bye!\n");
       break;
     } else {
