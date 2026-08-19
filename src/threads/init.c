@@ -175,6 +175,10 @@ static void interactive_shell(void) {
       printf("%lu\n", rtc_get_time());
     } else if (!strcmp(command, "ram")) {
       printf("%'" PRIu32 " kB\n", init_ram_pages * PGSIZE / 1024);
+    } else if (!strcmp(command, "thread")) {
+      thread_print_stats();
+    } else if (!strcmp(command, "priority")) {
+      printf("%d\n", thread_get_priority());
     } else if (!strcmp(command, "exit")) {
       printf("Exiting interactive shell...Bye!\n");
       break;
