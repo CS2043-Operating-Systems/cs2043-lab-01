@@ -171,6 +171,8 @@ static void interactive_shell(void) {
       printf("Shashika Dayarathna - 240092V\n");
     } else if (!strcmp(command, "shutdown")) {
       shutdown_power_off();
+    } else if (!strcmp(command, "time")) {
+      printf("%lu\n", rtc_get_time());
     } else if (!strcmp(command, "exit")) {
       printf("Exiting interactive shell...Bye!\n");
       break;
