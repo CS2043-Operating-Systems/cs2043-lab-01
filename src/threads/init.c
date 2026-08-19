@@ -173,6 +173,8 @@ static void interactive_shell(void) {
       shutdown_power_off();
     } else if (!strcmp(command, "time")) {
       printf("%lu\n", rtc_get_time());
+    } else if (!strcmp(command, "ram")) {
+      printf("%'" PRIu32 " kB\n", init_ram_pages * PGSIZE / 1024);
     } else if (!strcmp(command, "exit")) {
       printf("Exiting interactive shell...Bye!\n");
       break;
