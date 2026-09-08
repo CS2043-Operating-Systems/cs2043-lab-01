@@ -20,26 +20,33 @@ Laboratory 0 marks the transition from abstract operating system concepts to con
 
 Pintos maps physical memory to virtual memory using an offset known as `PHYS_BASE` (`0xc0000000` or 3 GB). The kernel resides in higher-half virtual memory, while the lowest physical addresses are reserved for historical PC architecture components.
 
-```text
-Physical Memory Map (Early Boot)             Virtual Memory Map (Paging Active)
-+------------------------------------+       +------------------------------------+
-| 0x00000 - 0x003FF: IVT (1 KB)      |       | 0x00000000 - 0xBFFFFFFF:           |
-| (Real Mode Interrupt Vector Table) |       | User Space (Up to 3 GB)            |
-+------------------------------------+       | (Unmapped in Lab 0)                |
-| 0x00400 - 0x004FF: BDA             |       +------------------------------------+
-| (BIOS Data Area)                   |       | 0xC0000000: PHYS_BASE              |
-+------------------------------------+       +------------------------------------+
-| 0x07C00 - 0x07DFF: MBR Bootloader  | ----> | 0xC0000000 - 0xC0000FFF:           |
-| (512-byte loader.bin)              |       | Direct mapping of physical 0x00000 |
-+------------------------------------+       +------------------------------------+
-| 0x20000: Kernel ELF Load Target    | ----> | 0xC0020000: Kernel Entry Point     |
-| (kernel.bin loaded by loader.S)    |       | (pintos_init / _start)             |
-+------------------------------------+       +------------------------------------+
-| 0x9FC00 - 0x9FFFF: EBDA            |       | Higher Kernel Pool & Frame Tables  |
-+------------------------------------+       +------------------------------------+
-| 0x000A0000 - 0x000FFFFF:           |
-| Video RAM, BIOS ROM, Device Mappings|
-+------------------------------------+
+```mermaid
+flowchart LR
+    subgraph PhysicalRAM["Physical Memory Map (Early Boot)"]
+        direction TB
+        P_IVT["0x00000 - 0x003FF: Real-Mode IVT (1 KB)"]
+        P_BDA["0x00400 - 0x004FF: BIOS Data Area (BDA)"]
+        P_MBR["0x07C00 - 0x07DFF: MBR Bootloader (loader.bin)"]
+        P_KERN["0x20000: Kernel ELF Load Target (kernel.bin)"]
+        P_EBDA["0x9FC00 - 0x9FFFF: Extended BIOS Data Area (EBDA)"]
+        P_ROM["0x000A0000 - 0x000FFFFF: Video RAM & BIOS ROM"]
+        
+        P_IVT --- P_BDA --- P_MBR --- P_KERN --- P_EBDA --- P_ROM
+    end
+
+    subgraph VirtualMemory["Virtual Memory Map (Paging Active)"]
+        direction TB
+        V_USER["0x00000000 - 0xBFFFFFFF: User Space (Unmapped in Lab 0)"]
+        V_BASE["0xC0000000: PHYS_BASE (Kernel Virtual Base)"]
+        V_MAP0["0xC0000000 - 0xC0000FFF: Direct Map of Physical 0x00000"]
+        V_ENTRY["0xC0020000: Kernel Virtual Entry Point (pintos_init)"]
+        V_POOL["Higher Virtual Addresses: Kernel Pool & Page Tables"]
+        
+        V_USER --- V_BASE --- V_MAP0 --- V_ENTRY --- V_POOL
+    end
+
+    P_MBR -. "1:1 Offset Mapping" .-> V_MAP0
+    P_KERN -. "PHYS_BASE Translation (+0xC0000000)" .-> V_ENTRY
 ```
 
 - **`0x7C00`**: The architectural address where BIOS loads the 512-byte Master Boot Record (MBR).
@@ -52,33 +59,21 @@ Physical Memory Map (Early Boot)             Virtual Memory Map (Paging Active)
 
 The Pintos boot pipeline spans four distinct execution phases:
 
-```text
-[ Hardware Reset ]
-        |
-        v
-[ BIOS Firmware (POST) ]
-        | Loads 512 bytes from Sector 1 to 0x7C00
-        v
-[ threads/loader.S ] (16-bit Real Mode)
-        | Reads partition table, locates Pintos kernel partition (type 0x20)
-        | Streams kernel sectors into physical RAM at 0x20000
-        | Parses 32-bit ELF header, reads entry point address
-        v
-[ threads/start.S ] (Real -> Protected Mode Transition)
-        | Enables A20 address line
-        | Probes total RAM via BIOS INT 15h
-        | Builds temporary page tables (maps first 4 MB)
-        | Loads CR3 (PDBR), sets CR0.PE and CR0.PG
-        | Executes ljmp into 32-bit Protected Mode
-        v
-[ threads/init.c: pintos_init() ] (Kernel C World)
-        | bss_init() -> thread_init() -> console_init()
-        | palloc_init() -> malloc_init() -> paging_init()
-        | intr_init() -> timer_init() -> kbd_init() -> input_init()
-        | thread_start() -> timer_calibrate()
-        |
-        +---> If kernel arguments exist: run_actions(argv)
-        +---> If no arguments supplied: interactive_shell()
+```mermaid
+flowchart TD
+    HR["Hardware Reset / CPU Power-On<br/>CS:IP = 0xF000:0xFFF0 (16-bit Real Mode)"]
+    BIOS["BIOS Firmware (POST)<br/>Initializes hardware, loads sector 1 (MBR) into physical RAM at 0x7C00"]
+    LOADER["threads/loader.S (16-bit Real Mode)<br/>• Scans MBR partition table for Pintos kernel (type 0x20)<br/>• Streams kernel sectors from disk to physical address 0x20000<br/>• Validates ELF header and reads kernel entry address"]
+    START["threads/start.S (Real ➔ 32-bit Protected Mode)<br/>• Enables A20 address line (eliminates 1 MB wraparound)<br/>• Probes physical RAM via BIOS INT 15h (e820/e801/88h)<br/>• Builds temporary page directory/table mapping first 4 MB<br/>• Loads CR3 (PDBR), sets CR0.PE and CR0.PG flags<br/>• Executes far jump (ljmp) to flush prefetch queue and enter Protected Mode"]
+    INIT["threads/init.c: pintos_init() (Kernel C Initialization)<br/>• bss_init(): Zeroes uninitialized static/global variables<br/>• thread_init() & console_init(): Sets up bootstrap thread and lock<br/>• palloc_init(), malloc_init(), paging_init(): Establishes page tables<br/>• intr_init(), timer_init(), kbd_init(), input_init(): Registers IDT & IRQs<br/>• thread_start() & timer_calibrate(): Enables interrupts (sti) and scheduler"]
+    
+    BRANCH{"Kernel Arguments Supplied?"}
+    RUN_ACT["run_actions(argv)<br/>Executes automated test harness (e.g. alarm-single)"]
+    SHELL["interactive_shell()<br/>Launches Ring 0 interactive kernel monitor (CS2043> prompt)"]
+
+    HR --> BIOS --> LOADER --> START --> INIT --> BRANCH
+    BRANCH -- "Yes" --> RUN_ACT
+    BRANCH -- "No" --> SHELL
 ```
 
 ### Phase 1: BIOS Firmware (POST)
@@ -131,22 +126,17 @@ When Pintos finishes booting without command-line arguments, it enters `interact
 
 ### Input Architecture & Concurrency Synchronization
 
-```text
-[ Keyboard Hardware Press ]
-            |
-            v
-[ IRQ 1 Generated ] -> [ IDT Entry 0x21 ] -> [ devices/kbd.c: kbd_intr() ]
-                                                       |
-                                            Translates Scancode to ASCII
-                                                       |
-                                                       v
-                                            [ devices/input.c: input_putc() ]
-                                                       |
-                                            Pushes char into circular buffer
-                                                       |
-                                                       v
-[ threads/init.c: interactive_shell() ] <--- [ devices/input.c: input_getc() ]
-Reads character, echoes to console, and buffers command
+```mermaid
+flowchart TD
+    KEY["Physical Key Press on Keyboard"]
+    IRQ["Hardware IRQ 1 Generated"]
+    IDT["CPU Interrupt Vector 0x21 (IDT Dispatch)"]
+    KBD["devices/kbd.c: kbd_intr()<br/>Reads scancode from port 0x60 and translates to ASCII"]
+    PUTC["devices/input.c: input_putc()<br/>Pushes ASCII character into circular input buffer"]
+    GETC["devices/input.c: input_getc()<br/>Disables interrupts, pops character from circular queue"]
+    SHELL["threads/init.c: interactive_shell()<br/>Reads character, echoes via putchar(), appends to command[64]"]
+
+    KEY --> IRQ --> IDT --> KBD --> PUTC --> GETC --> SHELL
 ```
 
 1. **Character Reception**: When a key is pressed, the keyboard controller raises IRQ 1, triggering `kbd_intr()`. The scancode is translated into an ASCII character and pushed into a circular queue via `input_putc()`.
